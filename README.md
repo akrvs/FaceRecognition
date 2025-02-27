@@ -1,55 +1,76 @@
-**Face Recognition using LFW Dataset**
+# Facial Recognition System
 
-This project implements a simple face recognition system using the Labeled Faces in the Wild (LFW) dataset and face_recognition library. 
-The system loads images from the LFW dataset, encodes faces, and detects known faces in a video stream.
+A simple and efficient facial recognition system built with Python, OpenCV, and face_recognition. This system can detect and recognize faces from a webcam feed in real-time by comparing them against known faces from the LFW (Labeled Faces in the Wild) dataset.
 
-**Features**
+## Features
 
-✅ Loads face encodings from the LFW datase
+- Real-time face detection and recognition from webcam
+- Integration with the LFW dataset for pre-trained faces
+- Customizable threshold for face matching accuracy
+- Simple API for easy integration into other projects
 
-✅ Detects faces in real-time using OpenCV
+## Requirements
 
-✅ Matches detected faces with known identities
+- Python 3.6+
+- OpenCV
+- face_recognition (which requires dlib and cmake)
+- NumPy
 
-✅ Uses a threshold to determine similarity
+## Installation
 
-**Installation**
+1. Clone this repository:
+```bash
+git clone https://github.com/yourusername/facial-recognition-system.git
+cd facial-recognition-system
+```
 
-Ensure you have Python 3 installed. Then, install the required dependencies:
+2. Install the required dependencies:
+```bash
+pip install opencv-python face_recognition numpy
+```
 
-pip install opencv-python face-recognition numpy
+3. Download the LFW dataset:
+   - The LFW dataset can be downloaded from [here](http://vis-www.cs.umass.edu/lfw/lfw-deepfunneled.tgz)
+   - Extract it to the project directory
 
-**Dataset**
+## Usage
 
-Download the LFW dataset:
-
-Visit the LFW website
-Download lfw-deepfunneled.tgz
-Extract it so that the folder structure looks like this:
-
-lfw-deepfunneled/
-
-    ├── Person_A/
-    
-    │   ├── img1.jpg
-    
-    │   ├── img2.jpg
-    
-    ├── Person_B/
-    
-    │   ├── img1.jpg
-
-**Usage**
-
-Run the face recognition script:
+1. Run the main script:
+```bash
 python main.py
-Press Esc to exit the program.    
+```
 
-**File Overview**
+2. The webcam will activate and start detecting faces
+3. Recognized faces will be labeled with their names
+4. Press the 'Esc' key to exit the application
 
-simple_facerec.py - Handles face encoding and detection
-main.py - Runs the face recognition on a webcam feed
+## Code Structure
 
-**License**
+- `main.py`: Main script to run the facial recognition system
+- `simple_facerec.py`: Contains the `SimpleFacerec` class that handles face encoding and recognition
 
-This project is open-source under the MIT License. Feel free to use and modify it!
+## How It Works
+
+1. The system loads face encodings from the LFW dataset
+2. Each frame from the webcam is processed to detect faces
+3. Detected faces are compared against the known face encodings
+4. If a match is found (below the threshold), the face is labeled with the corresponding name
+5. If no match is found, the face is labeled as "Unknown"
+
+## Customization
+
+You can adjust several parameters in the code:
+
+- In `simple_facerec.py`, modify the `threshold` value (default: 0.4) to make face matching more or less strict
+- Adjust the `frame_resizing` value to balance between performance and accuracy
+- Implement additional features such as saving recognized faces to a database
+
+## License
+
+[MIT License](LICENSE)
+
+## Acknowledgments
+
+- [face_recognition](https://github.com/ageitgey/face_recognition) library
+- [LFW dataset](http://vis-www.cs.umass.edu/lfw/)
+- OpenCV community
