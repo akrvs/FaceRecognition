@@ -1,0 +1,14 @@
+services:
+  visage:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      VISAGE_INDEX_BACKEND: faiss
+      VISAGE_MATCH_THRESHOLD: "0.35"
+    volumes:
+      - models:/models
+      - ./data:/app/data
+
+volumes:
+  models:
