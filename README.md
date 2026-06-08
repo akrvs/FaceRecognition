@@ -1,135 +1,194 @@
-# Visage
-
-Real-time face recognition as a service. Visage turns a face image into a 512-dimensional ArcFace embedding, indexes enrolled identities in a FAISS vector store, and exposes enrollment, recognition, and verification over a typed HTTP API.
-
-[![CI](https://github.com/akrvs/Visage/actions/workflows/ci.yml/badge.svg)](https://github.com/akrvs/Visage/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-
-## Problem
-
-Most open-source face recognition demos hard-code a folder of images, compute one embedding per person, and run a linear scan against that list on every frame. That design does not survive contact with production: matching is O(n) in the number of identities, the gallery cannot be updated without a restart, there is no service boundary, and accuracy is never measured. Visage rebuilds the same idea as a deployable system with a measured recognition backbone, sublinear vector search, and a clean API.
-
-## Approach
-
-A face image flows through three stages behind stable interfaces:
-
-1. **Detection and embedding** — InsightFace (`buffalo_l`, RetinaFace + ArcFace) detects faces and produces L2-normalized 512-d embeddings.
-2. **Vector index** — embeddings are stored in a FAISS inner-product index. With normalized vectors, inner product equals cosine similarity, so nearest-neighbour search ranks identities by face similarity. A pure-NumPy index is provided as a dependency-free fallback and as the substrate for fast tests.
-3. **Recognition** — a query embedding is matched against the gallery; a configurable cosine threshold separates a known identity from `Unknown`.
-
 ```
-                 +-------------------+        +------------------+
- image bytes --> |  InsightFace      | -----> |  FAISS / NumPy   |
-                 |  detect + ArcFace |  512-d |  vector index    |
-                 +-------------------+        +------------------+
-                          |                            |
-                          v                            v
-                 +-------------------------------------------------+
-                 |  FaceRecognizer: enroll / recognize / verify    |
-                 +-------------------------------------------------+
-                          |                            |
-                          v                            v
-                 +-----------------+          +------------------+
-                 |  FastAPI app    |          |  Typer CLI       |
-                 +-----------------+          +------------------+
+        ██╗   ██╗██╗███████╗ █████╗  ██████╗ ███████╗
+        ██║   ██║██║██╔════╝██╔══██╗██╔════╝ ██╔════╝
+        ██║   ██║██║███████╗███████║██║  ███╗█████╗
+        ╚██╗ ██╔╝██║╚════██║██╔══██║██║   ██║██╔══╝
+         ╚████╔╝ ██║███████║██║  ██║╚██████╔╝███████╗
+          ╚═══╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+            f a c e   r e c o g n i t i o n   r i g
 ```
 
-## Design decisions
+> A face walks past the lens. The rig lifts a 512-dimension signature, drops it into a vector index, and calls the match before the next frame lands. Enroll a target, then watch the box own every face it has seen before.
 
-- **Interfaces over implementations.** `Embedder` and `VectorIndex` are protocols. The heavy InsightFace/FAISS backends are optional extras and are imported lazily, so the core logic, the API, and the full test suite run without any deep-learning dependency installed.
-- **Cosine similarity via normalized inner product.** Embeddings are normalized at the source, which lets FAISS `IndexFlatIP` and the NumPy backend share identical semantics and makes thresholds portable across both.
-- **Separation of gallery and vectors.** The vector index holds numerical labels; a `Gallery` maps labels to identity names and persists alongside the index, so multiple embeddings can back a single identity.
-- **Configuration through environment.** Pydantic settings (`VISAGE_*`) drive model choice, thresholds, and storage paths with no code changes.
+![status](https://img.shields.io/badge/status-ACTIVE-brightgreen)
+![category](https://img.shields.io/badge/category-AI%20%2F%20Computer%20Vision-9cf)
+![difficulty](https://img.shields.io/badge/difficulty-Hard-red)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
 
-## Quick start
+```
+┌─[ MACHINE ]────────────────────────────────────────────────┐
+│ codename    : Visage                                        │
+│ category    : AI / Computer Vision                          │
+│ difficulty  : Hard                                          │
+│ stack       : InsightFace (ArcFace) · FAISS · FastAPI       │
+│ interfaces  : REST API + Typer CLI                          │
+│ flags       : user [enroll]   root [recognize @ scale]      │
+│ status      : OWNED - 98.6% on LFW                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## [ Briefing ]
+
+Visage turns a face image into a 512-dimensional ArcFace embedding, indexes enrolled identities in a FAISS vector store, and exposes enrollment, recognition, and one-to-one verification over a typed HTTP API and a CLI. It is the difference between a classroom demo and a service you could actually put behind a door.
+
+## [ Recon ] - reading the target
+
+Most open-source face recognition demos hard-code a folder of images, compute one embedding per person, and run a linear scan against that list on every frame. The design does not survive contact with production:
+
+```
+[!] matching is O(n) in the number of identities      -> melts under load
+[!] the gallery cannot change without a restart        -> no live enrollment
+[!] no service boundary                                 -> not callable, not deployable
+[!] accuracy is never measured                          -> "trust me" is not a metric
+```
+
+Visage rebuilds the same idea as a deployable system with a measured recognition backbone, sublinear vector search, and a clean API.
+
+## [ Attack Path ] - how a frame gets owned
+
+```
+   image bytes
+        │
+        v
+ ┌───────────────────┐      detect + align faces, emit
+ │  InsightFace      │      L2-normalized 512-d ArcFace
+ │  RetinaFace+ArcFace│      embeddings
+ └───────────────────┘
+        │  512-d vectors
+        v
+ ┌───────────────────┐      cosine == inner product on
+ │  FAISS / NumPy    │      normalized vectors -> nearest
+ │  vector index     │      neighbour ranks identities
+ └───────────────────┘
+        │  top-k labels + scores
+        v
+ ┌─────────────────────────────────────────────┐
+ │  FaceRecognizer                              │
+ │  enroll  ·  recognize  ·  verify  ·  gallery │
+ └─────────────────────────────────────────────┘
+        │                           │
+        v                           v
+ ┌───────────────┐          ┌───────────────┐
+ │  FastAPI      │          │  Typer CLI    │
+ └───────────────┘          └───────────────┘
+```
+
+## [ Tradecraft ] - why it is built this way
+
+- `[*]` **Interfaces over implementations.** `Embedder` and `VectorIndex` are protocols. The heavy InsightFace / FAISS backends are optional extras imported lazily, so the core logic, the API, and the full test suite run with zero deep-learning dependencies installed. A pure-NumPy index is the tested substrate.
+- `[*]` **Cosine via normalized inner product.** Embeddings are normalized at the source, so FAISS `IndexFlatIP` and the NumPy backend share identical semantics and thresholds stay portable across both.
+- `[*]` **Gallery split from vectors.** The index holds integer labels; a `Gallery` maps labels to identity names and persists beside the index, so multiple embeddings can back a single identity.
+- `[*]` **Config as environment.** Pydantic settings (`VISAGE_*`) drive model choice, thresholds, and storage paths with no code edits.
+
+## [ Arsenal ]
+
+```
+recognition : insightface (buffalo_l) · onnxruntime
+search      : faiss-cpu (IndexFlatIP) · numpy fallback
+service     : fastapi · uvicorn · pydantic v2 · typer
+imaging     : pillow · numpy
+quality     : pytest · ruff · mypy
+ship        : docker · docker-compose · github actions
+```
+
+## [ Deploy ] - spawn the box
 
 ```bash
-pip install -e ".[recognition]"
+$ pip install -e ".[recognition]"
+[+] backends online: insightface, faiss
 
-visage serve
+$ visage serve
+[+] listening on 0.0.0.0:8000   docs -> /docs
 ```
 
 ```bash
-curl -F "name=ada" -F "file=@ada.jpg" http://localhost:8000/enroll
-curl -F "file=@query.jpg" http://localhost:8000/recognize
-curl -F "file_a=@a.jpg" -F "file_b=@b.jpg" http://localhost:8000/verify
+$ curl -F "name=ada" -F "file=@ada.jpg"        http://localhost:8000/enroll
+[+] enrolled ada (1 embedding)
+
+$ curl -F "file=@query.jpg"                     http://localhost:8000/recognize
+[+] ada @ 0.71
+
+$ curl -F "file_a=@a.jpg" -F "file_b=@b.jpg"    http://localhost:8000/verify
+[+] match=true similarity=0.78
 ```
 
-Interactive API docs are served at `http://localhost:8000/docs`.
-
-### Docker
+Containerized run:
 
 ```bash
-docker compose up --build
+$ docker compose up --build
+[*] weights pulled once into the mounted volume on first start
 ```
 
-The InsightFace weights are downloaded once into a mounted volume on first start.
+## [ Attack Surface ] - endpoints
 
-## API
+| Method | Path          | Action                                              |
+| ------ | ------------- | --------------------------------------------------- |
+| GET    | `/health`     | Service status, model, indexed vector count         |
+| POST   | `/enroll`     | Register an identity from an uploaded image          |
+| POST   | `/recognize`  | Detect and identify every face in an image           |
+| POST   | `/verify`     | One-to-one similarity between two faces               |
+| GET    | `/identities` | Enrolled identities and embedding counts             |
 
-| Method | Path          | Description                                            |
-| ------ | ------------- | ------------------------------------------------------ |
-| GET    | `/health`     | Service status, model name, and indexed vector count   |
-| POST   | `/enroll`     | Add an identity from an uploaded image                  |
-| POST   | `/recognize`  | Detect and identify every face in an uploaded image    |
-| POST   | `/verify`     | One-to-one similarity between two faces                 |
-| GET    | `/identities` | Enrolled identities and embedding counts               |
+## [ Loot ] - proof of pwn
 
-## Evaluation
-
-Verification quality is measured on the LFW (Labeled Faces in the Wild) benchmark using balanced positive and negative pairs. Cosine similarity is scored per pair; accuracy is reported at the best global threshold and ranking quality as ROC-AUC.
+Verification measured on LFW (Labeled Faces in the Wild) with balanced same / different identity pairs. Cosine similarity scored per pair; accuracy at the best global threshold, ranking quality as ROC-AUC.
 
 ```bash
-./scripts/download_lfw.sh data/lfw
-visage evaluate data/lfw --pairs 2000
+$ ./scripts/download_lfw.sh data/lfw
+$ visage evaluate data/lfw --pairs 2000
 ```
 
-| Metric                | Value  |
-| --------------------- | ------ |
-| Pairs (balanced)      | 1000   |
-| Pairs with two faces  | 997    |
-| Verification accuracy | 98.6%  |
-| ROC-AUC               | 0.9924 |
-| Best cosine threshold | 0.17   |
+```
+┌─[ FLAG: recognition @ scale ]──────────────────┐
+│ pairs (balanced)      1000                      │
+│ pairs with two faces  997                       │
+│ verification accuracy 98.6%                      │
+│ ROC-AUC               0.9924                     │
+│ best cosine threshold 0.17                       │
+└─────────────────────────────────────────────────┘
+```
 
-Produced by `visage evaluate` on CPU with the `buffalo_l` model and seed 42, on a balanced subset of same/different identity pairs (three pairs were skipped because a face was not detectable in both images). The default service threshold is set higher (0.35) to favour precision in an open-set enrollment setting, where rejecting unknown faces matters more than on a closed verification benchmark.
+Run on CPU with `buffalo_l`, seed 42 (three pairs skipped where a face was not detectable in both images). The default service threshold sits higher (0.35) to favour precision in open-set enrollment, where rejecting unknown faces matters more than on a closed verification benchmark.
 
-## Project layout
+## [ Layout ]
 
 ```
 src/visage/
-  config.py              Pydantic settings
-  models.py              Pydantic schemas and the DetectedFace value type
-  imaging.py             Image decoding
-  embeddings/            Embedder protocol + InsightFace implementation
+  config.py              pydantic settings
+  models.py              schemas + the DetectedFace value type
+  imaging.py             image decoding
+  embeddings/            Embedder protocol + InsightFace backend
   index/                 VectorIndex protocol + FAISS and NumPy backends
-  service/               FaceRecognizer and identity gallery
+  service/               FaceRecognizer + identity gallery
   api/                   FastAPI app, routes, dependency injection
-  evaluation/            LFW pair builder and verification metrics
+  evaluation/            LFW pair builder + verification metrics
   cli.py                 Typer command line
-tests/                   Unit and API tests (no GPU or model weights required)
+tests/                   unit + API tests (no GPU or weights required)
 ```
 
-## Testing
+## [ Test Range ]
 
 ```bash
-pip install -e ".[dev]"
-make test
-make lint
+$ pip install -e ".[dev]"
+$ make test
+[+] 28 passed
+
+$ make lint
+[+] ruff clean · mypy clean
 ```
 
-The suite injects a deterministic fake embedder and the NumPy index, so recognition, persistence, the metrics, and every API route are tested without downloading model weights. CI runs lint, type checking, and tests on Python 3.10 through 3.12.
+The suite injects a deterministic fake embedder and the NumPy index, so recognition, persistence, the metrics, and every API route are exercised without downloading a single weight. CI replays lint, type checking, and tests on Python 3.10 through 3.12.
 
-## Roadmap
+## [ Skill Tree ] - next objectives
 
-- Approximate nearest-neighbour index (IVF/HNSW) for galleries beyond a million identities
-- Liveness and anti-spoofing stage before enrollment
-- Quality gating on detection score, pose, and blur at enrollment time
-- Batched and streaming recognition endpoints for video sources
-- Persistent metadata store (PostgreSQL/pgvector) as an alternative backend
-- Prometheus metrics and structured request tracing
+- `[ ]` Approximate nearest-neighbour index (IVF / HNSW) for galleries past a million identities
+- `[ ]` Liveness and anti-spoofing stage before enrollment
+- `[ ]` Quality gating on detection score, pose, and blur at enrollment
+- `[ ]` Batched and streaming recognition for video sources
+- `[ ]` Persistent metadata store (PostgreSQL / pgvector) as a backend
+- `[ ]` Prometheus metrics and structured request tracing
 
-## License
+## [ Intel ]
 
-MIT
+MIT. Use it, fork it, build on it.
